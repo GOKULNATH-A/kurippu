@@ -1,0 +1,1 @@
+# Kurippu backend app package
