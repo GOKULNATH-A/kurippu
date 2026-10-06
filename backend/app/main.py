@@ -2,7 +2,7 @@ import os
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -75,6 +75,40 @@ async def health_check():
         "ai_provider": settings.AI_PROVIDER,
         "storage": settings.STORAGE_PROVIDER,
     }
+
+
+# Frontend SPA static serving (Production / Docker container)
+FRONTEND_DIST_DIR = os.getenv(
+    "FRONTEND_DIST_PATH",
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")),
+)
+
+if os.path.isdir(FRONTEND_DIST_DIR):
+    assets_dir = os.path.join(FRONTEND_DIST_DIR, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend_assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Pass through API, health, static uploads, and docs routes
+        if (
+            full_path.startswith("api/")
+            or full_path.startswith("static/")
+            or full_path in ("health", "docs", "redoc", "openapi.json")
+        ):
+            return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+        # Serve exact file if it exists in dist (e.g. favicon.svg, bg.png, icons.svg)
+        candidate = os.path.join(FRONTEND_DIST_DIR, full_path)
+        if full_path and os.path.isfile(candidate):
+            return FileResponse(candidate)
+
+        # Fallback to index.html for client-side SPA routing
+        index_file = os.path.join(FRONTEND_DIST_DIR, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(index_file)
+
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
 
 
 @app.exception_handler(Exception)
